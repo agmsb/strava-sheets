@@ -18,6 +18,21 @@ export const RAW_DATA_HEADERS = [
 
 export const SEGMENT_EFFORT_HEADERS = ['Segment ID', 'Date', 'Elapsed Time (s)'];
 
+export const DASHBOARD_HEADERS = [
+  'Total Distance (mi)',
+  'Total Elevation (ft)',
+  'Total Rides',
+  'Average Speed (mph)',
+];
+
+export const DASHBOARD_FORMULAS = [
+  '=SUM(raw_data!D2:D)',
+  '=SUM(raw_data!E2:E)',
+  '=COUNTA(raw_data!A2:A)',
+  '=IFERROR(AVERAGE(raw_data!F2:F), 0)',
+];
+
+
 function escapeCsvCell(val: unknown): string {
   if (val === null || val === undefined) return '';
   const str = String(val);
@@ -78,6 +93,15 @@ export function segmentEffortsToTsv(efforts: StravaSegmentEffort[], segmentId: n
   ];
   return lines.join('\n');
 }
+
+export function dashboardToCsv(): string {
+  const lines = [
+    DASHBOARD_HEADERS.map(escapeCsvCell).join(','),
+    DASHBOARD_FORMULAS.map(escapeCsvCell).join(','),
+  ];
+  return lines.join('\n');
+}
+
 
 export function downloadFile(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });

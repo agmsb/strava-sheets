@@ -4,6 +4,33 @@ const METERS_TO_FEET = 3.28084;
 const M_PER_S_TO_MPH = 2.23694;
 const PT_OFFSET_SECONDS = 25200;
 
+// UI helper object wrapping SpreadsheetApp UI interactions
+const ui = {
+  alert: (msg) => {
+    if (typeof SpreadsheetApp !== 'undefined' && SpreadsheetApp.getUi) {
+      return SpreadsheetApp.getUi().alert(msg);
+    }
+    if (typeof Logger !== 'undefined' && Logger.log) {
+      Logger.log(`[UI Alert]: ${msg}`);
+    }
+  },
+  promptForSegmentId: () => {
+    if (typeof SpreadsheetApp !== 'undefined' && SpreadsheetApp.getUi) {
+      const response = SpreadsheetApp.getUi().prompt('Enter Segment ID:');
+      return response.getSelectedButton() === SpreadsheetApp.getUi().Button.OK ? response.getResponseText() : null;
+    }
+    return null;
+  },
+  logAuthorizationUrl: (url) => {
+    if (typeof Logger !== 'undefined' && Logger.log) {
+      Logger.log(`Authorization URL: ${url}`);
+    }
+    if (typeof SpreadsheetApp !== 'undefined' && SpreadsheetApp.getUi) {
+      SpreadsheetApp.getUi().alert(`Please authorize Strava by visiting this URL:\n\n${url}`);
+    }
+  }
+};
+
 // Config to dictate behavior for rides and segment efforts.
 const CONFIG = {
   rides: {
@@ -41,6 +68,7 @@ function onOpen() {
       SpreadsheetApp.getUi()
         .createMenu('Setup')
         .addItem('Create rides sheet', 'setupRidesSheet')
+        .addItem('Create dashboard sheet', 'setupDashboardSheet')
         .addItem('Get all rides', 'runAllRideProcessing')
     )
     .addSeparator()
@@ -74,6 +102,73 @@ function setupRidesSheet() {
   sheet.setFrozenRows(1); // Freeze the header row for better usability
 
   ui.alert(`Successfully created the "${sheetName}" sheet with headers.`);
+}
+
+// Create Dashboard sheet with KPI cards and embedded charts if it doesn't exist.
+function setupDashboardSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetName = 'Dashboard';
+
+  if (spreadsheet.getSheetByName(sheetName)) {
+    ui.alert(`The sheet "${sheetName}" already exists.`);
+    return;
+  }
+
+  const dashboardSheet = spreadsheet.insertSheet(sheetName);
+
+  // Set KPI card headers and dynamic formulas referencing raw_data
+  const kpiHeaders = [['Total Distance (mi)', 'Total Elevation (ft)', 'Total Rides', 'Average Speed (mph)']];
+  const kpiFormulas = [[
+    '=SUM(raw_data!D2:D)',
+    '=SUM(raw_data!E2:E)',
+    '=COUNTA(raw_data!A2:A)',
+    '=IFERROR(AVERAGE(raw_data!F2:F), 0)'
+  ]];
+
+  dashboardSheet.getRange(1, 1, 1, 4).setValues(kpiHeaders);
+  dashboardSheet.getRange(1, 1, 1, 4).setFontWeight('bold');
+
+  dashboardSheet.getRange(2, 1, 1, 4).setFormulas(kpiFormulas);
+
+  // Format KPI card numbers
+  dashboardSheet.getRange(2, 1).setNumberFormat('0.0');
+  dashboardSheet.getRange(2, 2).setNumberFormat('#,##0');
+  dashboardSheet.getRange(2, 3).setNumberFormat('#,##0');
+  dashboardSheet.getRange(2, 4).setNumberFormat('0.0');
+
+  // Ensure raw_data sheet reference for chart ranges
+  let rawDataSheet = spreadsheet.getSheetByName('raw_data');
+  if (!rawDataSheet) {
+    rawDataSheet = spreadsheet.insertSheet('raw_data');
+  }
+
+  // Monthly Distance Column Chart
+  const distanceChart = dashboardSheet.newChart()
+    .setChartType(Charts.ChartType.COLUMN)
+    .addRange(rawDataSheet.getRange('A1:A'))
+    .addRange(rawDataSheet.getRange('D1:D'))
+    .setOption('title', 'Monthly Distance')
+    .setOption('hAxis', { title: 'Date' })
+    .setOption('vAxis', { title: 'Distance (mi)' })
+    .setPosition(4, 1, 0, 0)
+    .build();
+
+  dashboardSheet.insertChart(distanceChart);
+
+  // Elevation Trend Line Chart
+  const elevationChart = dashboardSheet.newChart()
+    .setChartType(Charts.ChartType.LINE)
+    .addRange(rawDataSheet.getRange('A1:A'))
+    .addRange(rawDataSheet.getRange('E1:E'))
+    .setOption('title', 'Elevation Trend')
+    .setOption('hAxis', { title: 'Date' })
+    .setOption('vAxis', { title: 'Elevation (ft)' })
+    .setPosition(4, 8, 0, 0)
+    .build();
+
+  dashboardSheet.insertChart(elevationChart);
+
+  ui.alert(`Successfully created the "${sheetName}" sheet with summary KPIs and charts.`);
 }
 
 // Entry for processing and writing rides data.
@@ -244,3 +339,19 @@ const stravaApi = {
     return null;
   }
 };
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    onOpen,
+    setupRidesSheet,
+    setupDashboardSheet,
+    runRideProcessing,
+    runAllRideProcessing,
+    runSegmentEffortProcessing,
+    formatRideData,
+    formatSegmentEffortData,
+    ui,
+    CONFIG,
+  };
+}
+
