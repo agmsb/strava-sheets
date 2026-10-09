@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { StravaActivity } from '@/types/strava';
 import { formatRideData } from '@/lib/strava';
 import { RAW_DATA_HEADERS, activitiesToCsv, activitiesToTsv, downloadFile } from '@/lib/export';
+import { SortField, sortRides } from '@/lib/sort';
 import {
   Search,
   ArrowUpDown,
@@ -12,27 +13,126 @@ import {
   Download,
   Copy,
   Check,
-  FileSpreadsheet,
   Bike,
 } from 'lucide-react';
+
+interface ColumnConfig {
+  field: SortField;
+  headerIndex: number;
+  align?: 'left' | 'right' | 'center';
+  minWidth?: string;
+}
+
+const TABLE_COLUMNS: ColumnConfig[] = [
+  { field: 'date', headerIndex: 0, align: 'left' },
+  { field: 'name', headerIndex: 1, align: 'left', minWidth: 'min-w-[180px]' },
+  { field: 'moving_time', headerIndex: 2, align: 'right' },
+  { field: 'distance', headerIndex: 3, align: 'right' },
+  { field: 'elevation', headerIndex: 4, align: 'right' },
+  { field: 'avg_speed', headerIndex: 5, align: 'right' },
+  { field: 'max_speed', headerIndex: 6, align: 'right' },
+  { field: 'kilojoules', headerIndex: 7, align: 'right' },
+  { field: 'avg_hr', headerIndex: 8, align: 'right' },
+  { field: 'max_hr', headerIndex: 9, align: 'right' },
+  { field: 'gear', headerIndex: 10, align: 'center' },
+  { field: 'athletes', headerIndex: 11, align: 'center' },
+];
+
+interface TableHeaderCellProps {
+  col: ColumnConfig;
+  sortField: SortField;
+  sortDirection: 'asc' | 'desc';
+  onSort: (field: SortField) => void;
+}
+
+const TableHeaderCell: React.FC<TableHeaderCellProps> = ({
+  col,
+  sortField,
+  sortDirection,
+  onSort,
+}) => {
+  const alignClass =
+    col.align === 'right'
+      ? 'text-right justify-end'
+      : col.align === 'center'
+      ? 'text-center justify-center'
+      : 'text-left justify-start';
+
+  const isSorted = sortField === col.field;
+
+  return (
+    <th
+      onClick={() => onSort(col.field)}
+      className={`group cursor-pointer px-4 py-3 hover:text-white transition-colors ${
+        col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : ''
+      } ${col.minWidth || ''}`}
+    >
+      <div className={`flex items-center gap-1.5 ${alignClass}`}>
+        <span>{RAW_DATA_HEADERS[col.headerIndex]}</span>
+        {!isSorted ? (
+          <ArrowUpDown className="h-3 w-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+        ) : sortDirection === 'asc' ? (
+          <ArrowUp className="h-3 w-3 text-orange-400" />
+        ) : (
+          <ArrowDown className="h-3 w-3 text-orange-400" />
+        )}
+      </div>
+    </th>
+  );
+};
+
+interface ActivityTableRowProps {
+  ride: StravaActivity;
+}
+
+const ActivityTableRow: React.FC<ActivityTableRowProps> = ({ ride }) => {
+  const formatted = formatRideData(ride);
+  const [
+    dateStr,
+    nameStr,
+    timeMin,
+    distMi,
+    elevFt,
+    avgSpeedMph,
+    maxSpeedMph,
+    kj,
+    avgHr,
+    maxHr,
+    gearId,
+    athleteCnt,
+  ] = formatted;
+
+  const formattedDate = new Date(dateStr).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  return (
+    <tr className="hover:bg-zinc-800/40 transition-colors">
+      <td className="px-4 py-3 whitespace-nowrap text-zinc-400">{formattedDate}</td>
+      <td className="px-4 py-3 font-semibold text-white whitespace-nowrap">{nameStr}</td>
+      <td className="px-4 py-3 text-right font-mono">{Number(timeMin).toFixed(1)}</td>
+      <td className="px-4 py-3 text-right font-mono text-orange-400 font-semibold">
+        {Number(distMi).toFixed(2)}
+      </td>
+      <td className="px-4 py-3 text-right font-mono">{Math.round(Number(elevFt))}</td>
+      <td className="px-4 py-3 text-right font-mono">{Number(avgSpeedMph).toFixed(1)}</td>
+      <td className="px-4 py-3 text-right font-mono text-zinc-400">
+        {Number(maxSpeedMph).toFixed(1)}
+      </td>
+      <td className="px-4 py-3 text-right font-mono">{kj ? Math.round(Number(kj)) : '-'}</td>
+      <td className="px-4 py-3 text-right font-mono">{avgHr ? Math.round(Number(avgHr)) : '-'}</td>
+      <td className="px-4 py-3 text-right font-mono">{maxHr ? Math.round(Number(maxHr)) : '-'}</td>
+      <td className="px-4 py-3 text-center font-mono text-zinc-400">{gearId || '-'}</td>
+      <td className="px-4 py-3 text-center">{athleteCnt}</td>
+    </tr>
+  );
+};
 
 interface ActivityTableProps {
   activities: StravaActivity[];
 }
-
-type SortField =
-  | 'date'
-  | 'name'
-  | 'moving_time'
-  | 'distance'
-  | 'elevation'
-  | 'avg_speed'
-  | 'max_speed'
-  | 'kilojoules'
-  | 'avg_hr'
-  | 'max_hr'
-  | 'gear'
-  | 'athletes';
 
 export const ActivityTable: React.FC<ActivityTableProps> = ({ activities }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,65 +157,7 @@ export const ActivityTable: React.FC<ActivityTableProps> = ({ activities }) => {
   }, [ridesOnly, searchTerm]);
 
   const sortedRides = useMemo(() => {
-    return [...filteredRides].sort((a, b) => {
-      let valA: number | string = 0;
-      let valB: number | string = 0;
-
-      switch (sortField) {
-        case 'date':
-          valA = new Date(a.start_date_local).getTime();
-          valB = new Date(b.start_date_local).getTime();
-          break;
-        case 'name':
-          valA = a.name.toLowerCase();
-          valB = b.name.toLowerCase();
-          break;
-        case 'moving_time':
-          valA = a.moving_time;
-          valB = b.moving_time;
-          break;
-        case 'distance':
-          valA = a.distance;
-          valB = b.distance;
-          break;
-        case 'elevation':
-          valA = a.total_elevation_gain;
-          valB = b.total_elevation_gain;
-          break;
-        case 'avg_speed':
-          valA = a.average_speed;
-          valB = b.average_speed;
-          break;
-        case 'max_speed':
-          valA = a.max_speed;
-          valB = b.max_speed;
-          break;
-        case 'kilojoules':
-          valA = a.kilojoules || 0;
-          valB = b.kilojoules || 0;
-          break;
-        case 'avg_hr':
-          valA = a.average_heartrate || 0;
-          valB = b.average_heartrate || 0;
-          break;
-        case 'max_hr':
-          valA = a.max_heartrate || 0;
-          valB = b.max_heartrate || 0;
-          break;
-        case 'gear':
-          valA = a.gear_id || '';
-          valB = b.gear_id || '';
-          break;
-        case 'athletes':
-          valA = a.athlete_count;
-          valB = b.athlete_count;
-          break;
-      }
-
-      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
-      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
+    return sortRides(filteredRides, sortField, sortDirection);
   }, [filteredRides, sortField, sortDirection]);
 
   const handleSort = (field: SortField) => {
@@ -125,17 +167,6 @@ export const ActivityTable: React.FC<ActivityTableProps> = ({ activities }) => {
       setSortField(field);
       setSortDirection('desc');
     }
-  };
-
-  const renderSortIcon = (field: SortField) => {
-    if (sortField !== field) {
-      return <ArrowUpDown className="h-3 w-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />;
-    }
-    return sortDirection === 'asc' ? (
-      <ArrowUp className="h-3 w-3 text-orange-400" />
-    ) : (
-      <ArrowDown className="h-3 w-3 text-orange-400" />
-    );
   };
 
   const handleCopyTsv = async () => {
@@ -218,114 +249,15 @@ export const ActivityTable: React.FC<ActivityTableProps> = ({ activities }) => {
         <table className="w-full text-left text-xs">
           <thead className="border-b border-zinc-800 bg-zinc-950/60 text-zinc-400 uppercase tracking-wider font-semibold">
             <tr>
-              <th
-                onClick={() => handleSort('date')}
-                className="group cursor-pointer px-4 py-3 hover:text-white transition-colors"
-              >
-                <div className="flex items-center gap-1.5">
-                  <span>{RAW_DATA_HEADERS[0]}</span>
-                  {renderSortIcon('date')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('name')}
-                className="group cursor-pointer px-4 py-3 hover:text-white transition-colors min-w-[180px]"
-              >
-                <div className="flex items-center gap-1.5">
-                  <span>{RAW_DATA_HEADERS[1]}</span>
-                  {renderSortIcon('name')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('moving_time')}
-                className="group cursor-pointer px-4 py-3 text-right hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>{RAW_DATA_HEADERS[2]}</span>
-                  {renderSortIcon('moving_time')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('distance')}
-                className="group cursor-pointer px-4 py-3 text-right hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>{RAW_DATA_HEADERS[3]}</span>
-                  {renderSortIcon('distance')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('elevation')}
-                className="group cursor-pointer px-4 py-3 text-right hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>{RAW_DATA_HEADERS[4]}</span>
-                  {renderSortIcon('elevation')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('avg_speed')}
-                className="group cursor-pointer px-4 py-3 text-right hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>{RAW_DATA_HEADERS[5]}</span>
-                  {renderSortIcon('avg_speed')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('max_speed')}
-                className="group cursor-pointer px-4 py-3 text-right hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>{RAW_DATA_HEADERS[6]}</span>
-                  {renderSortIcon('max_speed')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('kilojoules')}
-                className="group cursor-pointer px-4 py-3 text-right hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>{RAW_DATA_HEADERS[7]}</span>
-                  {renderSortIcon('kilojoules')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('avg_hr')}
-                className="group cursor-pointer px-4 py-3 text-right hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>{RAW_DATA_HEADERS[8]}</span>
-                  {renderSortIcon('avg_hr')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('max_hr')}
-                className="group cursor-pointer px-4 py-3 text-right hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>{RAW_DATA_HEADERS[9]}</span>
-                  {renderSortIcon('max_hr')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('gear')}
-                className="group cursor-pointer px-4 py-3 text-center hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-center gap-1.5">
-                  <span>{RAW_DATA_HEADERS[10]}</span>
-                  {renderSortIcon('gear')}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort('athletes')}
-                className="group cursor-pointer px-4 py-3 text-center hover:text-white transition-colors"
-              >
-                <div className="flex items-center justify-center gap-1.5">
-                  <span>{RAW_DATA_HEADERS[11]}</span>
-                  {renderSortIcon('athletes')}
-                </div>
-              </th>
+              {TABLE_COLUMNS.map((col) => (
+                <TableHeaderCell
+                  key={col.field}
+                  col={col}
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                />
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60 font-medium text-zinc-300">
@@ -336,50 +268,7 @@ export const ActivityTable: React.FC<ActivityTableProps> = ({ activities }) => {
                 </td>
               </tr>
             ) : (
-              sortedRides.map((ride) => {
-                const formatted = formatRideData(ride);
-                const [
-                  dateStr,
-                  nameStr,
-                  timeMin,
-                  distMi,
-                  elevFt,
-                  avgSpeedMph,
-                  maxSpeedMph,
-                  kj,
-                  avgHr,
-                  maxHr,
-                  gearId,
-                  athleteCnt,
-                ] = formatted;
-
-                const formattedDate = new Date(dateStr).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                });
-
-                return (
-                  <tr key={ride.id} className="hover:bg-zinc-800/40 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap text-zinc-400">{formattedDate}</td>
-                    <td className="px-4 py-3 font-semibold text-white whitespace-nowrap">{nameStr}</td>
-                    <td className="px-4 py-3 text-right font-mono">{Number(timeMin).toFixed(1)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-orange-400 font-semibold">
-                      {Number(distMi).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono">{Math.round(Number(elevFt))}</td>
-                    <td className="px-4 py-3 text-right font-mono">{Number(avgSpeedMph).toFixed(1)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-zinc-400">
-                      {Number(maxSpeedMph).toFixed(1)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono">{kj ? Math.round(Number(kj)) : '-'}</td>
-                    <td className="px-4 py-3 text-right font-mono">{avgHr ? Math.round(Number(avgHr)) : '-'}</td>
-                    <td className="px-4 py-3 text-right font-mono">{maxHr ? Math.round(Number(maxHr)) : '-'}</td>
-                    <td className="px-4 py-3 text-center font-mono text-zinc-400">{gearId || '-'}</td>
-                    <td className="px-4 py-3 text-center">{athleteCnt}</td>
-                  </tr>
-                );
-              })
+              sortedRides.map((ride) => <ActivityTableRow key={ride.id} ride={ride} />)
             )}
           </tbody>
         </table>

@@ -22,6 +22,50 @@ import {
   Info,
 } from 'lucide-react';
 
+interface DashboardBannersProps {
+  error: string | null;
+  isDemo: boolean;
+  onSwitchToDemo: () => void;
+}
+
+const DashboardBanners: React.FC<DashboardBannersProps> = ({
+  error,
+  isDemo,
+  onSwitchToDemo,
+}) => {
+  if (error) {
+    return (
+      <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-400 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Info className="h-4 w-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+        <button
+          onClick={onSwitchToDemo}
+          className="rounded bg-red-500/20 px-2 py-1 text-[11px] font-semibold hover:bg-red-500/30 text-white"
+        >
+          Switch to Demo Mode
+        </button>
+      </div>
+    );
+  }
+
+  if (isDemo) {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 text-amber-400 flex-shrink-0" />
+          <span>
+            <strong>Demo Mode Active:</strong> You are viewing realistic sample Strava ride activities and segment efforts matching the `raw_data` schema in `code.js`.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+};
+
 export default function DashboardPage() {
   const [isDemo, setIsDemo] = useState(true);
   const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
@@ -32,39 +76,42 @@ export default function DashboardPage() {
   );
   const [error, setError] = useState<string | null>(null);
 
-  const fetchActivities = useCallback(async (tokenOverride?: string) => {
-    setLoading(true);
-    setError(null);
-    const tokenToUse = tokenOverride || accessToken;
+  const fetchActivities = useCallback(
+    async (tokenOverride?: string) => {
+      setLoading(true);
+      setError(null);
+      const tokenToUse = tokenOverride || accessToken;
 
-    try {
-      const url = `/api/strava/activities?demo=${isDemo ? 'true' : 'false'}`;
-      const headers: Record<string, string> = {};
-      if (tokenToUse && !isDemo) {
-        headers['Authorization'] = `Bearer ${tokenToUse}`;
+      try {
+        const url = `/api/strava/activities?demo=${isDemo ? 'true' : 'false'}`;
+        const headers: Record<string, string> = {};
+        if (tokenToUse && !isDemo) {
+          headers['Authorization'] = `Bearer ${tokenToUse}`;
+        }
+
+        const res = await fetch(url, { headers });
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to fetch activities');
+        }
+
+        setActivities(data.activities || []);
+        setLastSyncedAt(
+          new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        );
+        if (tokenOverride) {
+          setAccessToken(tokenOverride);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Error syncing activities';
+        setError(msg);
+      } finally {
+        setLoading(false);
       }
-
-      const res = await fetch(url, { headers });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to fetch activities');
-      }
-
-      setActivities(data.activities || []);
-      setLastSyncedAt(
-        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      );
-      if (tokenOverride) {
-        setAccessToken(tokenOverride);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error syncing activities';
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [isDemo, accessToken]);
+    },
+    [isDemo, accessToken]
+  );
 
   useEffect(() => {
     fetchActivities();
@@ -115,31 +162,11 @@ export default function DashboardPage() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Banner Alert for Demo or Error */}
-        {error && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-400 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Info className="h-4 w-4 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-            <button
-              onClick={() => setIsDemo(true)}
-              className="rounded bg-red-500/20 px-2 py-1 text-[11px] font-semibold hover:bg-red-500/30 text-white"
-            >
-              Switch to Demo Mode
-            </button>
-          </div>
-        )}
-
-        {isDemo && !error && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-amber-400 flex-shrink-0" />
-              <span>
-                <strong>Demo Mode Active:</strong> You are viewing realistic sample Strava ride activities and segment efforts matching the `raw_data` schema in `code.js`.
-              </span>
-            </div>
-          </div>
-        )}
+        <DashboardBanners
+          error={error}
+          isDemo={isDemo}
+          onSwitchToDemo={() => setIsDemo(true)}
+        />
 
         {/* High-Level Stat Cards Grid */}
         <section>
@@ -163,14 +190,14 @@ export default function DashboardPage() {
               unit="mi"
               icon={<Navigation className="h-5 w-5" />}
               highlight
-              subtext={`converted from meters`}
+              subtext="converted from meters"
             />
             <StatCard
               title="Total Elevation"
               value={Math.round(stats.totalElevationFeet).toLocaleString()}
               unit="ft"
               icon={<Mountain className="h-5 w-5" />}
-              subtext={`converted from meters`}
+              subtext="converted from meters"
             />
             <StatCard
               title="Moving Time"
