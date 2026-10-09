@@ -10,7 +10,7 @@ import {
   computeDashboardStats,
   MOCK_ACTIVITIES,
 } from '../strava';
-import { activitiesToCsv, RAW_DATA_HEADERS } from '../export';
+import { activitiesToCsv, RAW_DATA_HEADERS, dashboardToCsv, DASHBOARD_HEADERS, DASHBOARD_FORMULAS } from '../export';
 
 describe('Unit Conversions & Math', () => {
   it('converts metrics correctly', () => {
@@ -73,4 +73,15 @@ describe('Google Sheets Export', () => {
     expect(lines).toHaveLength(MOCK_ACTIVITIES.length + 1);
     expect(lines[1]).toContain('Morning Coastal Loop');
   });
+
+  it('generates Dashboard CSV export with dynamic formulas', () => {
+    const csv = dashboardToCsv();
+    const lines = csv.split('\n');
+
+    expect(lines[0]).toBe(DASHBOARD_HEADERS.join(','));
+    expect(lines[1]).toContain('=SUM(raw_data!D2:D)');
+    expect(lines[1]).toContain('"=IFERROR(AVERAGE(raw_data!F2:F), 0)"');
+  });
+
 });
+
